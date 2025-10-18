@@ -1,0 +1,149 @@
+version: '3.8'
+services:
+  # WAHA - WhatsApp HTTP API
+  waha:
+    image: devlikeapro/waha
+    container_name: waha
+    ports:
+      - "3000:3000"
+    environment:
+      - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/waha
+      - WHATSAPP_SWAGGER_ENABLED=true
+    volumes:
+      - ./waha_data:/app/.wwebjs_auth
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+  # n8n - Workflow Automation
+  n8n:
+    image: n8nio/n8n
+    container_name: n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=sua_senha_forte_aqui
+      - WEBHOOK_URL=http://localhost:5678
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+      # Configuração MySQL
+      - DB_TYPE=mysqldb
+      - DB_MYSQLDB_HOST=mysql
+      - DB_MYSQLDB_PORT=3306
+      - DB_MYSQLDB_DATABASE=n8n
+      - DB_MYSQLDB_USER=n8n
+      - DB_MYSQLDB_PASSWORD=senha_mysql_n8n
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    depends_on:
+      - waha
+      - mysql
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+  # Ollama - IA Local
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    # Para usar GPU NVIDIA, descomente:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+  # MySQL - Banco Relacional (n8n, configs, analytics)
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=senha_root_mysql
+      - MYSQL_DATABASE=n8n
+      - MYSQL_USER=n8n
+      - MYSQL_PASSWORD=senha_mysql_n8n
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+  # MongoDB - Histórico de Mensagens WhatsApp
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=senha_mongodb_admin
+      - MONGO_INITDB_DATABASE=whatsapp
+    volumes:
+      - ./mongodb_data:/data/db
+      - ./mongodb_init:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+  # Mongo Express - Interface Web MongoDB (Opcional)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=senha_mongodb_admin
+      - ME_CONFIG_MONGODB_URL=mongodb://admin:senha_mongodb_admin@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=senha_mongoexpress
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+  # PHPMyAdmin - Interface Web MySQL (Opcional)
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=mysql
+      - PMA_PORT=3306
+      - PMA_USER=n8n
+      - PMA_PASSWORD=senha_mysql_n8n
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    networks:
+      - whatsapp_network
+networks:
+  whatsapp_network:
+    driver: bridge
+volumes:
+  waha_data:
+  n8n_data:
+  ollama_data:
+  mysql_data:
+  mongodb_data:
+
